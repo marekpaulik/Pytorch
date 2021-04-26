@@ -52,6 +52,13 @@ class EarlyStopping:
 class CassavaClassifier():
     def __init__(self, data_dir, num_classes, device, Transform=None, sample=False, loss_weights=False, batch_size=16,
      lr=1e-4, tensorboard=True, stop_early=True, use_amp=True, freeze_backbone=True):
+    ########################################################################################
+    # data_dir - directory with images in subfolders, subfolders name are categories
+    # Transform - data augmentations
+    # sample - if the dataset is imbalanced set to true and RandomWeightedSampler will be used
+    # loss_weights - if the dataset is imbalanced set to true and weight parameter will be passed to loss function
+    # freeze_backbone - if using pretrained architecture freeze all but the classification layer
+    #########################################################################################
         self.data_dir = data_dir
         self.num_classes = num_classes
         self.device = device
@@ -66,11 +73,6 @@ class CassavaClassifier():
         self.Transform = Transform
 
     def load_data(self):
-    ########################################################################################
-    # data_dir - directory with images in subfolders, subfolders name are categories
-    # Transform - data augmentations
-    # sample - if the dataset is imbalanced set to true and RandomWeightedSampler will be used
-    #########################################################################################
         train_full = torchvision.datasets.ImageFolder(self.data_dir, transform=self.Transform)
         train_set, val_set = random_split(train_full, [math.floor(len(train_full)*0.8), math.ceil(len(train_full)*0.2)])
 
@@ -96,14 +98,9 @@ class CassavaClassifier():
         return train_loader, val_loader
 
 
-
-
     def load_model(self, arch='resnet'):
         ##############################################################################################################
         # arch - choose the pretrained architecture from resnet or efficientnetb7
-        # loss_weights - if the dataset is imbalanced set to true and weight parameter will be passed to loss function
-        # freeze_backbone - if using pretrained architecture freeze all but the classification layer
-        # train_classes - helper parameter passed from load_data(), needed if loss_weights=True
         ############################################################################################################## 
         if arch == 'resnet':
             self.model = torchvision.models.resnet50(pretrained=True)
@@ -133,13 +130,16 @@ class CassavaClassifier():
         #return model, optimizer, criterion  
 
 
-    def fit(self, train_loader, val_loader, num_epochs=10, unfreeze_after=5):
+    def fit(self, train_loader, val_loader, num_epochs=10, unfreeze_after=5, checkpoint_dir='sampler_checkpoint'):
+        ##############################################################################################################
+        # unfreeze_after - unfreeze the backbone of pretrained model after x epochs
+        ############################################################################################################## 
         if self.tensorboard:
             writer = SummaryWriter('runs/sampler_cassava') #TODO parametrize
         if self.stop_early:
             early_stopping = EarlyStopping(
             patience=5, 
-            path='sampler_checkpoint.pt') #TODO parametrize
+            path=checkpoint_dir)
         
         step_train = 0
         step_val = 0
