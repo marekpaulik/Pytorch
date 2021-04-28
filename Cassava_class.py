@@ -130,107 +130,106 @@ class CassavaClassifier():
         
         #return model, optimizer, criterion  
 
+    def fit_one_epoch(self, train_loader,scaler, epoch, num_epochs ): 
+        step_train = 0
 
-    def fit(self, train_loader, val_loader, num_epochs=10, unfreeze_after=5, checkpoint_dir='sampler_checkpoint'):
-        ##############################################################################################################
-        # unfreeze_after - unfreeze the backbone of pretrained model after x epochs
-        ############################################################################################################## 
+        train_loss = list() # Every epoch check average loss per batch 
+        train_acc = list()
+        self.model.train()
+        for i, (images, targets) in enumerate(tqdm(train_loader)):
+            images = images.to(self.device)
+            targets = targets.to(self.device)
+
+            with torch.cuda.amp.autocast(enabled=self.use_amp): #mixed precision
+                logits = self.model(images)
+                loss = self.criterion(logits, targets)
+
+            scaler.scale(loss).backward()
+            scaler.step(self.optimizer)
+            scaler.update()
+
+            self.optimizer.zero_grad()
+
+            train_loss.append(loss.item())
+
+            #Calculate running train accuracy
+            predictions = torch.argmax(logits, dim=1)
+            num_correct = sum(predictions.eq(targets))
+            running_train_acc = float(num_correct) / float(images.shape[0])
+            train_acc.append(running_train_acc)
+
+            # Plot to tensorboard
+            if self.tensorboard:
+                img_grid = torchvision.utils.make_grid(images[:10])
+                self.writer.add_image('Cassava_images', img_grid) # Check how transformed images look in training
+                #writer.add_histogram('fc', model.fc.weight) # Check if our weights change during trianing
+
+                self.writer.add_scalar('training_loss', loss, global_step=step_train)
+                self.writer.add_scalar('training_acc', running_train_acc, global_step=step_train)
+                step_train +=1
+
+        print(f'Epoch {epoch}/{num_epochs-1}')  
+        print(f'Training loss: {torch.tensor(train_loss).mean():.2f}')
+
+    def val_one_epoch(self, val_loader, scaler):
+        val_losses = list()
+        val_accs = list()
+        self.model.eval()
+        step_val = 0
+        with torch.no_grad():
+            for (images, targets) in val_loader:
+                images = images.to(self.device)
+                targets = targets.to(self.device)
+
+                with torch.cuda.amp.autocast(enabled=self.use_amp):
+                    logits = self.model(images)
+                    loss = self.criterion(logits, targets)
+                val_losses.append(loss.item())      
+            
+                predictions = torch.argmax(logits, dim=1)
+                num_correct = sum(predictions.eq(targets))
+                running_val_acc = float(num_correct) / float(images.shape[0])
+
+                val_accs.append(running_val_acc)
+            
+                if self.tensorboard:
+                    self.writer.add_scalar('validation_loss', loss, global_step=step_val)
+                    self.writer.add_scalar('validation_acc', running_val_acc, global_step=step_val)
+                    step_val +=1
+
+            self.val_loss = torch.tensor(val_losses).mean()
+            val_acc = torch.tensor(val_accs).mean() # Average acc per batch
+        
+            print(f'Validation loss: {self.val_loss:.2f}')  
+            print(f'Validation accuracy: {val_acc:.2f}') 
+
+
+    def fit(self, train_loader, val_loader, num_epochs=10, unfreeze_after=5, checkpoint_dir='checkpoint.pt'):
         if self.tensorboard:
-            writer = SummaryWriter('runs/sampler_cassava') #TODO parametrize
+            self.writer = SummaryWriter('runs/sampler_cassava') #TODO parametrize
         if self.stop_early:
             early_stopping = EarlyStopping(
             patience=5, 
             path=checkpoint_dir)
-        
-        step_train = 0
-        step_val = 0
 
-        scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)
+        scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)    
 
         for epoch in range(num_epochs):
             if self.freeze_backbone:
                 if epoch == unfreeze_after:  # Unfreeze after x epochs
                     for param in self.model.parameters():
                         param.requires_grad = True
-
-            train_loss = list() # Every epoch check average loss per batch 
-            train_acc = list()
-            self.model.train()
-            for i, (images, targets) in enumerate(tqdm(train_loader)):
-                images = images.to(self.device)
-                targets = targets.to(self.device)
-
-                with torch.cuda.amp.autocast(enabled=self.use_amp): #mixed precision
-                    logits = self.model(images)
-                    loss = self.criterion(logits, targets)
-
-                scaler.scale(loss).backward()
-                scaler.step(self.optimizer)
-                scaler.update()
-
-                self.optimizer.zero_grad()
-
-                train_loss.append(loss.item())
-
-                #Calculate running train accuracy
-                predictions = torch.argmax(logits, dim=1)
-                num_correct = sum(predictions.eq(targets))
-                running_train_acc = float(num_correct) / float(images.shape[0])
-                train_acc.append(running_train_acc)
-
-                # Plot to tensorboard
-                if self.tensorboard:
-                    img_grid = torchvision.utils.make_grid(images[:10])
-                    writer.add_image('Cassava_images', img_grid) # Check how transformed images look in training
-                    #writer.add_histogram('fc', model.fc.weight) # Check if our weights change during trianing
-
-                    writer.add_scalar('training_loss', loss, global_step=step_train)
-                    writer.add_scalar('training_acc', running_train_acc, global_step=step_train)
-                    step_train +=1
-
-            print(f'Epoch {epoch}/{num_epochs-1}')  
-            print(f'Training loss: {torch.tensor(train_loss).mean():.2f}') 
-
-            val_losses = list()
-            val_accs = list()
-            self.model.eval()
-            with torch.no_grad():
-                for (images, targets) in val_loader:
-                    images = images.to(self.device)
-                    targets = targets.to(self.device)
-
-                    with torch.cuda.amp.autocast(enabled=self.use_amp):
-                        logits = self.model(images)
-                        loss = self.criterion(logits, targets)
-                    val_losses.append(loss.item())      
-                
-                    predictions = torch.argmax(logits, dim=1)
-                    num_correct = sum(predictions.eq(targets))
-                    running_val_acc = float(num_correct) / float(images.shape[0])
-
-                    val_accs.append(running_val_acc)
-                
-                    if self.tensorboard:
-                        writer.add_scalar('validation_loss', loss, global_step=step_val)
-                        writer.add_scalar('validation_acc', running_val_acc, global_step=step_val)
-                        step_val +=1
-
-                val_loss = torch.tensor(val_losses).mean()
-                val_acc = torch.tensor(val_accs).mean() # Average acc per batch
-            
-                print(f'Validation loss: {val_loss:.2f}')  
-                print(f'Validation accuracy: {val_acc:.2f}') 
-            
-                if self.stop_early:
-                    early_stopping(val_loss, self.model)
-                    if early_stopping.early_stop:
-                        print('Early Stopping')
-                        print(f'Best validation loss: {early_stopping.best_score}')
-                        break
+            self.fit_one_epoch(train_loader, scaler, epoch, num_epochs)
+            self.val_one_epoch(val_loader, scaler)
+            if self.stop_early:
+                early_stopping(self.val_loss, self.model)
+                if early_stopping.early_stop:
+                    print('Early Stopping')
+                    print(f'Best validation loss: {early_stopping.best_score}')
+                    break
+                    
 
 
-
-# Run
 Transform = T.Compose(
                     [T.ToTensor(),
                     T.Resize((256, 256)),
@@ -244,32 +243,32 @@ data_dir = "C:/Users/marek/Deep Learning/Data/cassava-disease/train/train"
 classifier = CassavaClassifier(data_dir=data_dir, num_classes=5, device=device, sample=True, Transform=Transform)
 train_loader, val_loader = classifier.load_data()
 classifier.load_model()
-classifier.fit(num_epochs=2, unfreeze_after=1, train_loader=train_loader, val_loader=val_loader)
+classifier.fit(num_epochs=20, unfreeze_after=5, train_loader=train_loader, val_loader=val_loader)
 
 # Inference
 model = torchvision.models.resnet50()
 #model = EfficientNet.from_name('efficientnet-b7')
-model._fc = nn.Linear(in_features=model._fc.in_features, out_features=5)
+model.fc = nn.Linear(in_features=model.fc.in_features, out_features=5)
 model = model.to(device)
-checkpoint = torch.load('C:/Users/marek/Deep Learning/Data/cassava-disease/sampler_checkpoint.pt')
+checkpoint = torch.load('C:/Users/marek/Deep Learning/GitHub repos/Pytorch/checkpoint.pt')
 model.load_state_dict(checkpoint)
 model.eval()
 
 
 # Dataset for test data
 class Cassava_Test(Dataset):
-  def __init__(self, dir, transform=None):
-    self.dir = dir
-    self.transform = transform
+    def __init__(self, dir, transform=None):
+        self.dir = dir
+        self.transform = transform
 
-    self.images = os.listdir(self.dir)  
+        self.images = os.listdir(self.dir)  
 
-  def __len__(self):
-    return len(self.images)
+    def __len__(self):
+        return len(self.images)
 
-  def __getitem__(self, idx):
-    img = Image.open(os.path.join(self.dir, self.images[idx]))
-    return self.transform(img), self.images[idx] 
+    def __getitem__(self, idx):
+        img = Image.open(os.path.join(self.dir, self.images[idx]))
+        return self.transform(img), self.images[idx] 
 
 
 test_dir = 'C:/Users/marek/Deep Learning/Data/cassava-disease/test/test/0'
@@ -284,17 +283,18 @@ pred_list = []
 model = model.to(device)
 
 with torch.no_grad():
-  for (image, image_id) in test_loader:
-    image = image.to(device)
+    for (image, image_id) in test_loader:
+        image = image.to(device)
 
-    logits = model(image)
-    predicted = list(torch.argmax(logits, 1).cpu().numpy())
+        logits = model(image)
+        predicted = list(torch.argmax(logits, 1).cpu().numpy())
 
-    for id in image_id:
-      id_list.append(id)
-  
-    for prediction in predicted:
-      pred_list.append(prediction)
+        for id in image_id:
+            id_list.append(id)
+
+        for prediction in predicted:
+            pred_list.append(prediction)
+
 sub['category'] = pred_list
 sub['id'] = id_list
 
