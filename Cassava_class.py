@@ -133,10 +133,11 @@ class CassavaClassifier():
     def fit_one_epoch(self, train_loader,scaler, epoch, num_epochs ): 
         step_train = 0
 
-        train_loss = list() # Every epoch check average loss per batch 
+        train_losses = list() # Every epoch check average loss per batch 
         train_acc = list()
         self.model.train()
-        for i, (images, targets) in enumerate(tqdm(train_loader)):
+        pbar = tqdm(enumerate(train_loader), total=len(train_loader))
+        for i, (images, targets) in pbar:
             images = images.to(self.device)
             targets = targets.to(self.device)
 
@@ -150,7 +151,7 @@ class CassavaClassifier():
 
             self.optimizer.zero_grad()
 
-            train_loss.append(loss.item())
+            train_losses.append(loss.item())
 
             #Calculate running train accuracy
             predictions = torch.argmax(logits, dim=1)
@@ -167,9 +168,9 @@ class CassavaClassifier():
                 self.writer.add_scalar('training_loss', loss, global_step=step_train)
                 self.writer.add_scalar('training_acc', running_train_acc, global_step=step_train)
                 step_train +=1
-
+        train_loss = torch.tensor(train_losses).mean()
         print(f'Epoch {epoch}/{num_epochs-1}')  
-        print(f'Training loss: {torch.tensor(train_loss).mean():.2f}')
+        print(f'Training loss: {train_loss:.2f}')
 
     def val_one_epoch(self, val_loader, scaler):
         val_losses = list()
