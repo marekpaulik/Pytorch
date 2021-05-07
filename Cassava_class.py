@@ -22,6 +22,26 @@ from tqdm import tqdm
 
 torch.cuda.empty_cache()
 
+
+cfg = {
+    'arch': 'resnet',
+    'batch_size': 128,
+    'data_dir': "C:/Users/marek/Deep Learning/Data/cassava-disease/train/train" ,
+    'num_classes': 5,
+    'device': torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu'),
+    'sample': True,
+    'loss_weights': False,
+    'tensorboard': True,
+    'stop_early': True,
+    'patience': 5,
+    'use_amp': True,
+    'freeze_backbone': True,
+    'unfreeze_after': 5,
+    'num_epochs': 25,
+    'lr': 1.425829107528182e-05,
+    'seed': 42
+}
+
 #Callbacks
 # Early stopping
 class EarlyStopping:
@@ -51,8 +71,8 @@ class EarlyStopping:
 
 
 class CassavaClassifier():
-    def __init__(self, data_dir, num_classes, device, Transform=None, sample=False, loss_weights=False, batch_size=16,
-     lr=1e-4, tensorboard=True, stop_early=True, use_amp=True, freeze_backbone=True):
+    def __init__(self, data_dir, num_classes, device, Transform=None, sample=cfg['sample'], loss_weights=cfg['loss_weights'], batch_size=cfg['batch_size'],
+     lr=cfg['lr'], tensorboard=cfg['tensorboard'], stop_early=cfg['stop_early'], use_amp=cfg['use_amp'], freeze_backbone=cfg['freeze_backbone']):
     ########################################################################################
     # data_dir - directory with images in subfolders, subfolders name are categories
     # Transform - data augmentations
@@ -99,7 +119,7 @@ class CassavaClassifier():
         return train_loader, val_loader
 
 
-    def load_model(self, arch='resnet'):
+    def load_model(self, arch=cfg['arch']):
         ##############################################################################################################
         # arch - choose the pretrained architecture from resnet or efficientnetb7
         ############################################################################################################## 
@@ -130,7 +150,7 @@ class CassavaClassifier():
         
         #return model, optimizer, criterion  
 
-    def fit_one_epoch(self, train_loader,scaler, epoch, num_epochs ): 
+    def fit_one_epoch(self, train_loader,scaler, epoch, num_epochs): 
         step_train = 0
 
         train_losses = list() # Every epoch check average loss per batch 
@@ -210,7 +230,7 @@ class CassavaClassifier():
             self.writer = SummaryWriter('runs/sampler_cassava') #TODO parametrize
         if self.stop_early:
             early_stopping = EarlyStopping(
-            patience=5, 
+            patience=cfg['patience'], 
             path=checkpoint_dir)
 
         scaler = torch.cuda.amp.GradScaler(enabled=self.use_amp)    
@@ -244,7 +264,7 @@ data_dir = "C:/Users/marek/Deep Learning/Data/cassava-disease/train/train"
 classifier = CassavaClassifier(data_dir=data_dir, num_classes=5, device=device, sample=True, Transform=Transform)
 train_loader, val_loader = classifier.load_data()
 classifier.load_model()
-classifier.fit(num_epochs=20, unfreeze_after=5, train_loader=train_loader, val_loader=val_loader)
+classifier.fit(num_epochs=cfg['num_epochs'], unfreeze_after=cfg['unfreeze_after'], train_loader=train_loader, val_loader=val_loader)
 
 # Inference
 model = torchvision.models.resnet50()
