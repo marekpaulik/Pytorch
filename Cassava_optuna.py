@@ -42,8 +42,8 @@ cfg = {
     'use_amp': True,
     'freeze_backbone': True,
     'unfreeze_after': 5,
-    'num_epochs': 3,
-    'n_trials': 6,
+    'num_epochs': 5,
+    'n_trials': 3,
     'n_startup_trials': 1,
     'n_warmup_steps': 3,
     'interval_steps': 1,
@@ -110,6 +110,7 @@ class CassavaClassifier():
         self.use_amp = use_amp
         self.freeze_backbone = freeze_backbone
         self.Transform = Transform
+        self.best_loss = 10000
 
     def load_data(self):
         train_full = torchvision.datasets.ImageFolder(self.data_dir, transform=self.Transform)
@@ -278,12 +279,18 @@ class CassavaClassifier():
                      print(f'Best validation loss: {early_stopping.best_score}')
                      break
 
+            if self.val_loss < self.best_loss:
+                print('New best model!')
+                self.best_loss = self.val_loss'
+                torch.save(self.model.state_dict(), 'best_model.pt')
+
             trial.report(self.val_loss, epoch)
 
             # Handle pruning based on the intermediate value.
             if trial.should_prune():
                 raise optuna.exceptions.TrialPruned()
 
+        torch.cuda.empty_cache()
         return self.val_loss                
                     
 
